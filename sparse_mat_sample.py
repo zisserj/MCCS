@@ -131,62 +131,54 @@ def draw_sample_simple(ts, length, init=[0], target=[]):
     return w
 
 def compute_mid_indices(gs, length, init):
+    n = gs[0].shape[0]
     bin_rep = f'{length:b}'
     assert len(gs) >= len(bin_rep), f"Gs are missing for length {length}"
-    reachable = init
-    prior_prob = np.ones(gs[0].shape[0])[init]/len(init) # uniform assumed for initial states
+    prior_prob = np.zeros(n)
+    prior_prob[init] = 1/len(init) # uniform assumed for initial states
+    # prior_prob = sp.csc_array(prior_prob)
     steps_indices = []
     # forward compute
     for i, b in enumerate(reversed(bin_rep)): # lsb first
         if b == '1':
             # for all x in set prior_prop:={possible states to be at after prev gi steps starting at init} 
             # what is the probability of (having gotten to x) /\ (get to all y from x)
-            yi_from_x = gs[i][reachable].multiply(prior_prob.reshape(-1,1))
+            prior_diag = sp.diags_array(prior_prob, offsets=0)
+            yi_from_x = prior_diag @ gs[i]
             
             # sum over x to get specific probability to be at state y after prev + cur gi
-            marginal_yi = yi_from_x.sum(axis=0)
-            #marginal_yi = marginal_yi/marginal_yi.sum()
+            prior_prob = yi_from_x.sum(axis=0)
             
-            reachable = marginal_yi.nonzero()
-            prior_prob = marginal_yi[reachable]
+            reachable = prior_prob.nonzero()
             steps_indices.append((i,
-                                  sp.csr_array(marginal_yi)))
+                                  sp.csr_array(yi_from_x)))
     return steps_indices
 
-# currently returns incorrect results, need to update to match
-# theoretical alg
-def draw_sample_general(gs, ts, length, init, target, indices):
+def draw_sample_rewrite(ts, length, target, tranitions):
     w = np.full(length+1, -1, dtype=int)
     # backwards compute - given init and target, select middle nodes
-    steps_iter = reversed(indices)
-    g_idx, rel_states = next(steps_iter)
-    try:
-        endpoint_sampled = target[_weighted_idx_sample(rel_states[target])]
-    except:
-        return "No matching traces"
-    target_idx = length
-    start_idx = target_idx - (2**(g_idx))
-    for prev_g_idx, prev_state in steps_iter:
-        # do highest order sampling
-        _sample_conditioned(ts[g_idx-1], prev_state.nonzero()[0],
-                        endpoint_sampled, w, s=start_idx, d=target_idx)
+    goal_idx = length
+    
+    # first iteration need to fill w
+    steps_iter = reversed(tranitions)
+    i, trans_mat = next(steps_iter)
+    step_idx = goal_idx - (2**i)
+    res_pair =  _weighted_idx_sample(trans_mat[:,target])
+    w[step_idx] = res_pair[0]
+    w[goal_idx] = target[res_pair[1]]
+    _draw_sample_fill(ts, i, w, step_idx, goal_idx)
+    goal_idx = step_idx
+    
+    for i, trans_mat in steps_iter:
+        # do endpoints sampling
+        step_idx = goal_idx - (2**i)
+        res_coord =  _weighted_idx_sample(trans_mat[:,w[goal_idx]])
+        w[step_idx] = res_coord[0]
         # "recursive" fill
-        _draw_sample_fill(ts, g_idx-1, w, start_idx, target_idx)
-        g_idx = prev_g_idx
-        endpoint_sampled = [w[start_idx]]
-        target_idx = start_idx
-        start_idx -= 2**g_idx
-    if g_idx > 0: # last step is at least 2
-        _sample_conditioned(ts[g_idx], init,
-                        endpoint_sampled, w, s=start_idx, d=target_idx)
-        # "recursive" fill
-        _draw_sample_fill(ts, g_idx, w, start_idx, target_idx)
-    else: # last step is exactly 1
-        opts = sp.coo_array(gs[0][init, endpoint_sampled])
-        init_idx = _weighted_idx_sample(opts)
-        w[0] = init[init_idx][0] # need to include g0 in args?
+        _draw_sample_fill(ts, i, w, step_idx, goal_idx)
+        #endpoint_sampled = [w[start_idx]]
+        goal_idx = step_idx
     return w
-
 
 def make_small_sample():
     dim = 4
@@ -210,9 +202,9 @@ def generate_many_traces(gs, ts, length, init, target, save_traces=False, repeat
     else:
         if len(gs) < np.log2(path_n):
             extend_power_mats(gs, ts, len(gs)+1)
-        g_steps = compute_mid_indices(gs, length, init)
-        draw = lambda: draw_sample_general(gs, ts, length, init, target, g_steps)
-        rel_mat = g_steps[-1][1][target]
+        endpoint_steps = compute_mid_indices(gs, length, init)
+        draw = lambda: draw_sample_rewrite(ts, length, target, endpoint_steps)
+        rel_mat = endpoint_steps[-1][1][:, target]
         print(f"Property probability is {rel_mat.sum()/len(init)}")
     generated = []
     time_total = 0
@@ -271,7 +263,7 @@ def load_and_store(dirname, t0, length):
 
 
 if __name__ == "__main__":
-    parser = True
+    parser = False
     # python sparse_mat_sample.py dtmcs/die.drn 8 -repeats 10
     if parser:
         parser = argparse.ArgumentParser("Generates conditional samples of system via sparse matrices.")
@@ -290,21 +282,25 @@ if __name__ == "__main__":
         store = args.store
         output = args.output
     else:
-        filename = "dtmcs/herman/herman7.drn"
-        path_n = 128
-        repeats = 500
-        tlabel = 'stable'
+        filename = "dtmcs/brp/brp_N_32_MAX_2.drn"
+        path_n = 18
+        repeats = 100
+        tlabel = 'target'
         store = False
         output = filename + '.out'
     print(f'Running parameters: fname={filename}, n={path_n}, repeats={repeats},'+
           f' label={tlabel}, store={store}, output={output if len(output) > 0 else False}')
     parse_time = time.perf_counter_ns()
-    model = read_drn(filename, target_label=tlabel)
+    model = read_drn(filename)
     print(f'Finished parsing input: {_ms_str_from(parse_time)}.')
     init = model['init']
-    target = model['target']
+    assert tlabel in model, f"Target label '{tlabel}' missing"
+    target = model[tlabel]
     assert len(target) > 0, "Target states missing"
     transitions = model['trans'].tocsr()
+    for key, states in model.items():
+        if key not in ['init', tlabel, 'trans']:
+            print(key, states)
 
     print(f"Number of states: {transitions.shape[0]}")
     print(f"Number of transitions: {transitions.nnz}")
