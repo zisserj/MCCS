@@ -1,9 +1,9 @@
 ## *MCCS: Markov Chain Conditioned Sampling*
 
-This repository features three realisations of an algorithm which generates sample traces of specified length of an input Markov chain, and meet provided initial and end conditions.
+This repository features three realisations of an algorithm which generates sample traces of specified length of an input Markov chain, and meet the provided initial and end conditions.
 It was implemented as part of my MSc thesis research.
 
-The realisations are based on different data structures - Algabraic Decision Diagrams (ADDs), Binary Decision Diagrams (BDDs) and sparse tensor. All the files concerning the implementation are under this main directory, and those used to conduct the evaluation are under `dtmcs`.
+The realisations are based on different data structures: Algebraic Decision Diagrams (ADDs), Binary Decision Diagrams (BDDs), and sparse tensors. All the files related to implementation are in this main directory, and those used for the evaluation are in `dtmcs`.
 
 ### Pipeline usage 
 
