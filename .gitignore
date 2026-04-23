@@ -1,8 +1,9 @@
 prism_examples/
 dtmcs/*/og
 __pycache__/
-dtmcs/*/*.drn
-dtmcs/*/*.drdd
+dtmcs/*/*.dr*
+dtmcs/*/*.png
 dtmcs/*/*/
 dtmcs/logs/
+dtmcs/robot/*.pm
 dd_experiments/__pycache__/

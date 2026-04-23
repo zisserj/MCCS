@@ -120,7 +120,7 @@ def _draw_sample_fill(ts, t_idx, w, start, end):
     for i in range(t_idx, 0, -1):
         inc = np.power(2, i)
         for j in range(start, end, inc):
-            _sample_seq_step(ts[i-1], j, j + inc, w)
+            _sample_seq_step(ts[i-1], j, j+inc, w)
 
 def draw_sample_simple(ts, length, init=[0], target=[]):
     w = np.full(length+1, -1, dtype=int)
@@ -130,7 +130,7 @@ def draw_sample_simple(ts, length, init=[0], target=[]):
     _draw_sample_fill(ts, int(np.log2(length))-1, w, 0, length)
     return w
 
-def compute_mid_indices(gs, length, init):
+def compute_forward_probs(gs, length, init):
     n = gs[0].shape[0]
     bin_rep = f'{length:b}'
     assert len(gs) >= len(bin_rep), f"Gs are missing for length {length}"
@@ -154,13 +154,13 @@ def compute_mid_indices(gs, length, init):
                                   sp.csr_array(yi_from_x)))
     return steps_indices
 
-def draw_sample_rewrite(ts, length, target, tranitions):
+def draw_sample_generic(ts, length, target, mid_tranitions):
     w = np.full(length+1, -1, dtype=int)
     # backwards compute - given init and target, select middle nodes
     goal_idx = length
     
     # first iteration need to fill w
-    steps_iter = reversed(tranitions)
+    steps_iter = reversed(mid_tranitions)
     i, trans_mat = next(steps_iter)
     step_idx = goal_idx - (2**i)
     res_pair =  _weighted_idx_sample(trans_mat[:,target])
@@ -202,8 +202,8 @@ def generate_many_traces(gs, ts, length, init, target, save_traces=False, repeat
     else:
         if len(gs) < np.log2(path_n):
             extend_power_mats(gs, ts, len(gs)+1)
-        endpoint_steps = compute_mid_indices(gs, length, init)
-        draw = lambda: draw_sample_rewrite(ts, length, target, endpoint_steps)
+        endpoint_steps = compute_forward_probs(gs, length, init)
+        draw = lambda: draw_sample_generic(ts, length, target, endpoint_steps)
         rel_mat = endpoint_steps[-1][1][:, target]
         print(f"Property probability is {rel_mat.sum()/len(init)}")
     generated = []
@@ -212,11 +212,11 @@ def generate_many_traces(gs, ts, length, init, target, save_traces=False, repeat
     for _ in range(repeats):
         iter_start_time = time.perf_counter_ns()
         res = draw()
+        time_total += time.perf_counter_ns() - iter_start_time
         if type(res) == str:
             print(res)
             return
         tr = tuple(res.tolist())
-        time_total += time.perf_counter_ns() - iter_start_time
         if save_traces:
             generated.append(tr)
     ns_taken_avg = time_total / repeats
@@ -282,8 +282,8 @@ if __name__ == "__main__":
         store = args.store
         output = args.output
     else:
-        filename = "dtmcs/brp/brp_N_32_MAX_2.drn"
-        path_n = 18
+        filename = "dtmcs/dice/die.drn"
+        path_n = 32
         repeats = 100
         tlabel = 'target'
         store = False
@@ -298,9 +298,6 @@ if __name__ == "__main__":
     target = model[tlabel]
     assert len(target) > 0, "Target states missing"
     transitions = model['trans'].tocsr()
-    for key, states in model.items():
-        if key not in ['init', tlabel, 'trans']:
-            print(key, states)
 
     print(f"Number of states: {transitions.shape[0]}")
     print(f"Number of transitions: {transitions.nnz}")
@@ -321,6 +318,10 @@ if __name__ == "__main__":
     
     if save_traces and res:
         with open(output, 'w+') as f:
+            for key, states in model.items():
+                if key not in ['trans']:
+                    f.write(f'{key}: {str(states)}\n')
+            f.write('---\n')
             f.write('\n'.join([str(r)[1:-1] for r in res]))
         print(f'{len(res)} traces written to {output}.')
 

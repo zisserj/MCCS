@@ -8,7 +8,6 @@ np.set_printoptions(precision=3, suppress=True)
 rng = np.random.default_rng()
 
 from drdd_to_add import load_adds_from_drdd
-from bdd_prob_sample import _state_to_og_vars # type: ignore
 
 _ms_str_from = lambda start_ns: f'{(perf_counter_ns()-start_ns)*1e-6:05.6f}ms'
 _ms_str_any = lambda ns: f'{ns*1e-6:.6f}ms'
@@ -69,16 +68,14 @@ def compute_power_graphs(ctx, trans, length):
         t_k = manager.apply('*', g_k, g_k_) # cuddGarbageCollect?
         ts.append(t_k)
         
-        if i < int(np.log2(length))-1:
-            # g = Ey in t
-            g_k_pre = manager.exist(map_next_iter.values(), t_k)
-            g_k = manager.let(map_next_iter, g_k_pre)
-            gs.append(g_k)
-        #print(manager.statistics())
-        # print(f'Finished iteration {i}: {(perf_counter_ns()-last_t)*1e-9}')
+        # g = Ey in t
+        g_k_pre = manager.exist(map_next_iter.values(), t_k)
+        g_k = manager.let(map_next_iter, g_k_pre)
+        gs.append(g_k)
         last_t = perf_counter_ns()
     return gs, ts
 
+# bdd assignment as int repr
 def _asgn_to_state(asgn, num_bits, vars=['x']):
     res = []
     for var in vars:
@@ -86,6 +83,7 @@ def _asgn_to_state(asgn, num_bits, vars=['x']):
         res.append(int(''.join(x), base=2))
     return res
 
+# int repr as bdd assignment
 def _state_to_asgn(state_ints, num_bits, vars):
     res = []
     for var, num in zip(vars, state_ints):
@@ -96,7 +94,6 @@ def _state_to_asgn(state_ints, num_bits, vars):
 
 def _weighted_sample(opts_iter):
     coords, weights = zip(*opts_iter)
-    #coords = np.array(coords)
     weights = np.array(weights,dtype=float)
     weights /= weights.sum()
     return rng.choice(coords, axis=0, p=weights)
@@ -105,8 +102,8 @@ def _sample_add_conditioned(ctx, t, start, target, w):
     rename_map = {f'x{i}': f'z{i}' for i in range(ctx.var_length)}
     manager = ctx.manager
     target_rename = manager.let(rename_map, target)
-    rel_states = t & start & target_rename
-    opts = list(manager.pick_iter(rel_states, with_values=True))
+    relevant_states = t & start & target_rename
+    opts = list(manager.pick_iter(relevant_states, with_values=True))
     if len(opts) == 0:
         return "No matching traces"
     res = _weighted_sample(opts)
@@ -115,28 +112,96 @@ def _sample_add_conditioned(ctx, t, start, target, w):
     w[len(w)//2] = res_ints[1]
     w[-1] = res_ints[2]
 
-def _sample_bdd_seq(ctx, t, x_idx, z_idx, w):
+def _sample_seq_step(ctx, ti, lo, hi, w):
     manager = ctx.manager
-    x_asgn, z_asgn = _state_to_asgn([w[x_idx],w[z_idx]], ctx.var_length, 'xz')
+    x_asgn, z_asgn = _state_to_asgn([w[lo],w[hi]], ctx.var_length, 'xz')
     start_bdd = manager.cube(x_asgn)
     target_bdd = manager.cube(z_asgn)
-    rel_states = t & start_bdd & target_bdd
-    opts = list(manager.pick_iter(rel_states, with_values=True))
+    relevant_states = ti & start_bdd & target_bdd
+    opts = list(manager.pick_iter(relevant_states, with_values=True))
     res = _weighted_sample(opts)
     res_ints = _asgn_to_state(res, ctx.var_length, 'xyz')
-    w[(x_idx+z_idx)//2] = res_ints[1]
+    w[(lo+hi)//2] = res_ints[1]
 
-def draw_sample(ctx, ts, length, init, target):
+def _draw_sample_fill(ctx, ts, t_idx, w, start, end):
+    for i in range(t_idx, 0, -1):
+        inc = np.power(2, i)
+        for j in range(start, end, inc):
+            _sample_seq_step(ctx, ts[i-1], j, j+inc, w)
+    
+def draw_sample_power(ctx, ts, length, init, target):
     w = [None]*(length+1)
     no_states = _sample_add_conditioned(ctx, ts[-1], init, target, w)
     if no_states:
         return no_states
-    for i in range(int(np.log2(length))-1, 0, -1):
-        inc = np.power(2, i)
-        for j in range(0, length, inc):
-            _sample_bdd_seq(context, ts[i-1], j, j + inc, w)
+    _draw_sample_fill(ctx, ts, int(np.log2(length))-1, w, 0, length)
     return w
+
+
+def compute_forward_probs(ctx, gs, length, init):
+    rename_map = {f'y{i}': f'x{i}' for i in range(ctx.var_length)}
+    bin_rep = f'{length:b}'
+    assert len(gs) >= len(bin_rep), f"Gs are missing for length {length}"
     
+    prior_prob = init # would ideally divide by number of possible initial states but doesnt really matter
+    steps_indices = []
+    # forward compute
+    for i, b in enumerate(reversed(bin_rep)): # lsb first
+        if b == '1':
+            # for all x in set prior_prop:={possible states to be at after prev gi steps starting at init} 
+            # what is the probability of (having gotten to x) /\ (get to all y from x)
+            yi_from_x = ctx.manager.apply('*', prior_prob, gs[i])
+            
+            # sum over x to get specific probability to be at state y after prev + cur gi
+            prior_prob_y = ctx.manager.exist(rename_map.values(), yi_from_x)
+            prior_prob = ctx.manager.let(rename_map, prior_prob_y)
+            
+            steps_indices.append((i, yi_from_x))
+    return steps_indices
+
+def draw_sample_generic(ctx, ts, length, target, mid_tranitions):
+    rename_map = {f'x{i}': f'y{i}' for i in range(ctx.var_length)}
+    
+    w = [None]*(length+1)
+    # backwards compute - given init and target, select middle nodes
+    goal_idx = length
+    
+    # first iteration need to fill w
+    steps_iter = reversed(mid_tranitions)
+    i, trans_f = next(steps_iter)
+    step_idx = goal_idx - (2**i)
+    target_rename = ctx.manager.let(rename_map, target)
+    
+    opts = list(manager.pick_iter(trans_f & target_rename, with_values=True))
+    if len(opts) == 0:
+        return "No matching traces"
+    res_pair =  _weighted_sample(opts)
+    res_ints = _asgn_to_state(res_pair, ctx.var_length, 'xy')
+    
+    
+    w[step_idx] = res_ints[0]
+    w[goal_idx] = res_ints[1]
+    _draw_sample_fill(ctx, ts, i, w, step_idx, goal_idx)
+    goal_idx = step_idx
+    
+    for i, trans_f in steps_iter:
+        # do endpoints sampling
+        step_idx = goal_idx - (2**i)
+        # goal state as assignment
+        goal = {f'y{var[1:]}':val for var, val in res_pair.items() if var.startswith('x')}
+        goal_bdd = ctx.manager.cube(goal)
+        
+        opts = list(manager.pick_iter(trans_f & goal_bdd, with_values=True))
+        res_pair =  _weighted_sample(opts)
+        res_ints = _asgn_to_state(res_pair, ctx.var_length, 'xy')
+    
+        w[step_idx] = res_ints[0]
+        
+        # "recursive" fill
+        _draw_sample_fill(ctx, ts, i, w, step_idx, goal_idx)
+        goal_idx = step_idx
+    return w
+ 
 def _state_to_og_vars(vars, w, intval):
     bits = f'{intval:0{w}b}'[::-1]
     idx= 0
@@ -146,19 +211,28 @@ def _state_to_og_vars(vars, w, intval):
         idx += num_bits
     return res
 
-def generate_many_traces(ctx, ts, length, init, target, save_traces=False, repeats=500):
+def generate_many_traces(ctx, gs, ts, length, init, target, save_traces=False, repeats=500):
+    if (length & (length-1) == 0) and length != 0: # https://stackoverflow.com/a/57025941
+        draw = lambda: draw_sample_power(ctx, ts, length, init, target)
+        # rel_mat = _slice_csr_full(ts[-1], init, target)
+        #print(f"Property probability is {rel_mat.sum()/len(init)}")
+    else:
+        mid_transitions = compute_forward_probs(ctx, gs, length, init)
+        draw = lambda: draw_sample_generic(ctx, ts, length, target, mid_transitions)
+        # rel_mat = endpoint_steps[-1][1][:, target]
+        # print(f"Property probability is {rel_mat.sum()/len(init)}")
+    
+
     generated = []
     time_total = 0
-    # todo: print probability of property
-    #print(f"Property probability is {rel_mat.sum()/len(init)}")
     for _ in range(repeats):
         iter_start_time = perf_counter_ns()
-        res = draw_sample(ctx, ts, length, init, target)
+        res = draw()
+        time_total += perf_counter_ns() - iter_start_time
         if type(res) == str:
             print(res)
             return
         tr = tuple(res)
-        time_total += perf_counter_ns() - iter_start_time
         if save_traces:
             generated.append(tr)
     ns_taken_avg = time_total / repeats
@@ -166,7 +240,7 @@ def generate_many_traces(ctx, ts, length, init, target, save_traces=False, repea
     if save_traces:
         return generated
 
-def print_graph():
+def print_map():
     num_bits = len(transitions.support)//2
     g1_asgns = list(manager.pick_iter(gs[1], with_values=True))
     vars = [('s', 3), ('d', 3)]
@@ -177,7 +251,7 @@ def print_graph():
 
 if __name__ == "__main__":
     
-    parser = True
+    parser = False
     if parser:
         parser = argparse.ArgumentParser("Generates conditional samples of system via Algabraic Decision Diagrams.")
         parser.add_argument("fname", help="Model exported as drdd file by storm", type=str)
@@ -195,17 +269,15 @@ if __name__ == "__main__":
         store = args.store
         output = args.output
     else:
-        filename = "dtmcs/robot_uniform.drdd"
-        path_n = 32
-        repeats = 100
+        filename = "dtmcs/dice/die.drdd"
+        path_n = 16
+        repeats = 1000
         tlabel = 'target'
         store = False
         output = filename + '.out'
     print(f'Running parameters: fname={filename}, n={path_n},'+
           f' repeats={repeats}, label={tlabel}, store={store}, output={output if len(output) > 0 else False}')
-    if not (path_n & (path_n-1) == 0) and path_n != 0:
-        raise NotImplementedError("Path length must be power of 2") 
-    
+
     manager = _agd.ADD()
     manager.configure(max_growth=1.5)
     context = lambda: None # (required to assign attributes)
@@ -234,7 +306,7 @@ if __name__ == "__main__":
     
     save_traces = len(output) > 0
         
-    res = generate_many_traces(context, ts, path_n,
+    res = generate_many_traces(context, gs, ts, path_n,
                 init, target, save_traces=save_traces,
                 repeats=repeats)
     
