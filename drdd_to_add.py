@@ -59,7 +59,7 @@ def _rename_vars_xy(agd, add_dict, vars):
     agd.vars = agd.vars - map.keys()
 
 def load_adds_from_drdd(agd, filename,
-                        rename_vars=True, load_targets=['transitions']):
+                        rename_vars=True):
     with open(filename, "r") as file:
         content = file.read()
     agd.configure(reordering=False)
@@ -78,8 +78,9 @@ def load_adds_from_drdd(agd, filename,
             vars = [f'v{i}' for i in vars]
 
         size = int(match.group(3).strip())
-        if name in load_targets:
-            res[name] = _build_add(agd, vars, nodes_iter)
+        if 'label' in name:
+            name = name.replace('label ', '')
+        res[name] = _build_add(agd, vars, nodes_iter)
     
     if rename_vars:
         _rename_vars_xy(agd, res, vars)
@@ -90,10 +91,7 @@ def load_adds_from_drdd(agd, filename,
 
 if __name__ == '__main__':
     agd = _agd.ADD()
-
     
-    #filename = "/home/jules/storm_sampler/storm-project-starter-cpp/symbolic_model.drdd"
-    #filename = "/home/jules/dtmcs/brp/dd_16_2.drdd"
     filename = "dtmcs/die.drdd"
     targets = ['transitions', 'initial', 'label target']
     adds = load_adds_from_drdd(agd, filename,

@@ -54,25 +54,29 @@ def _define_var_maps(ctx, trans):
     return (map_mul, map_next_iter)
     
 # trans must have all x1-xn, y1-yn vars
-def compute_power_graphs(ctx, trans, length):
+def compute_power_graphs(ctx, trans, n):
     map_mul, map_next_iter = _define_var_maps(ctx, trans)
+    
+    is_power_of_2 = (n & (n-1) == 0) and n != 0
+    iters = int(np.log2(n))
     
     manager = ctx.manager
     gs = [trans]
     ts = []
     g_k = trans
     last_t = perf_counter_ns()
-    for i in range(0, int(np.log2(length))):
+    for i in range(0, int(np.log2(n))):
         # t = g x g
         g_k_ = manager.let(map_mul, g_k)
         t_k = manager.apply('*', g_k, g_k_) # cuddGarbageCollect?
         ts.append(t_k)
         
-        # g = Ey in t
-        g_k_pre = manager.exist(map_next_iter.values(), t_k)
-        g_k = manager.let(map_next_iter, g_k_pre)
-        gs.append(g_k)
-        last_t = perf_counter_ns()
+        if i < iters or not is_power_of_2:
+            # g = Ey in t
+            g_k_pre = manager.exist(map_next_iter.values(), t_k)
+            g_k = manager.let(map_next_iter, g_k_pre)
+            gs.append(g_k)
+            last_t = perf_counter_ns()
     return gs, ts
 
 # bdd assignment as int repr
@@ -251,7 +255,8 @@ def print_map():
 
 if __name__ == "__main__":
     
-    parser = False
+    parser = True
+    # python add_sample.py dtmcs/die.drdd 8 -repeats 10
     if parser:
         parser = argparse.ArgumentParser("Generates conditional samples of system via Algabraic Decision Diagrams.")
         parser.add_argument("fname", help="Model exported as drdd file by storm", type=str)
@@ -270,8 +275,8 @@ if __name__ == "__main__":
         output = args.output
     else:
         filename = "dtmcs/dice/die.drdd"
-        path_n = 16
-        repeats = 1000
+        path_n = 18
+        repeats = 100
         tlabel = 'target'
         store = False
         output = filename + '.out'
@@ -284,11 +289,10 @@ if __name__ == "__main__":
     context.manager = manager # type: ignore
     
     parse_time = perf_counter_ns()
-    model = load_adds_from_drdd(context.manager, filename, # type: ignore
-                                load_targets=['initial', 'transitions', f'label {tlabel}'])
+    model = load_adds_from_drdd(context.manager, filename)
     print(f'Finished parsing input: {_ms_str_from(parse_time)}.')
     init = model['initial']
-    target = model[f'label {tlabel}']
+    target = model[tlabel]
     assert len(target) > 0, "Target states missing"
     transitions = model['transitions']
     
@@ -312,6 +316,14 @@ if __name__ == "__main__":
     
     if save_traces and res:
         with open(output, 'w+') as f:
+            for label, states_bdd in model.items():
+                if label != 'transitions':
+                    states_iter = context.manager.pick_iter(states_bdd)
+                    states = [_asgn_to_state(s,context.var_length, 'x')[0]
+                                  for s in states_iter]
+                    #_asgn_to_state(res_pair, ctx.var_length, 'xy')
+                    f.write(f'{label}: {str(states)}\n')
+            f.write('---\n')
             f.write('\n'.join([str(r)[1:-1] for r in res]))
         print(f'{len(res)} traces written to {output}.')
     

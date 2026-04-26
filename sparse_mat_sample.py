@@ -263,7 +263,7 @@ def load_and_store(dirname, t0, length):
 
 
 if __name__ == "__main__":
-    parser = False
+    parser = True
     # python sparse_mat_sample.py dtmcs/die.drn 8 -repeats 10
     if parser:
         parser = argparse.ArgumentParser("Generates conditional samples of system via sparse matrices.")
@@ -282,10 +282,10 @@ if __name__ == "__main__":
         store = args.store
         output = args.output
     else:
-        filename = "dtmcs/dice/die.drn"
-        path_n = 32
+        filename = "dtmcs/herman/herman5.drn"
+        path_n = 16
         repeats = 100
-        tlabel = 'target'
+        tlabel = 'stable'
         store = False
         output = filename + '.out'
     print(f'Running parameters: fname={filename}, n={path_n}, repeats={repeats},'+
@@ -318,9 +318,9 @@ if __name__ == "__main__":
     
     if save_traces and res:
         with open(output, 'w+') as f:
-            for key, states in model.items():
-                if key not in ['trans']:
-                    f.write(f'{key}: {str(states)}\n')
+            for label, states in model.items():
+                if label != 'trans':
+                    f.write(f'{label}: {str(states)}\n')
             f.write('---\n')
             f.write('\n'.join([str(r)[1:-1] for r in res]))
         print(f'{len(res)} traces written to {output}.')

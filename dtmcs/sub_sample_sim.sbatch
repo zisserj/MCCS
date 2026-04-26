@@ -54,7 +54,7 @@ do
         # Extract first and third words from the line
         set -- $line
 	    dir_name=${1//.pm/}
-        for length in 8 16 32 64 128; do
+        for length in 8 12 16 24 32 48 64 96 128; do
             echo "--- $line - $length ---"
             python $script "$dir_name"/$line $length -repeats 500 -tlabel "$label"
         done

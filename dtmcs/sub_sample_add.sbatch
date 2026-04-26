@@ -33,7 +33,7 @@ dir=nand;
 for dir in $dir; do # brp egl herman leader_sync nand; do
   for file in "$dir"/*.drdd; do
     fdir=${file%.*}
-    for length in 8 16 32 64 128; do
+    for length in 8 12 16 24 32 48 64 96 128; do
         echo "--- $file - $length ---"
         python $script "$file" $length -repeats 500 -tlabel target
     done
