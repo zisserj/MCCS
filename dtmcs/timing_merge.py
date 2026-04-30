@@ -58,7 +58,7 @@ model_df[['model_name', 'model_params']] = model_df['model_file'].apply(lambda x
 model_df.replace('leader_sync', 'leader', inplace=True)
 model_df['model_consts'] = model_df['model_params'].where(~model_df['model_params'].isna(), model_df['model_consts'])
 model_df['model_file'] = model_df['model_name']
-model_df.drop(['model_type', 'model_name', 'model_params'], axis=1, inplace=True)
+model_df.drop(['model_name', 'model_params'], axis=1, inplace=True)
 model_df = model_df[model_df['states'] < 233832446]
 model_df.head()
 
