@@ -70,6 +70,7 @@ def ts_sanity_test(ts, path_n, init, target):
     
 # M[i, j, k] = M'[i, (j*n)+k]
 # arrays as input for inital/target states
+# REALLY INEFFICIENT
 def _slice_csr_full(mat, x, z):
     # every idx in z is a column in y
     d = mat.shape[0]
@@ -124,7 +125,7 @@ def _draw_sample_fill(ts, t_idx, w, start, end):
 
 def draw_sample_simple(ts, length, init=[0], target=[]):
     w = np.full(length+1, -1, dtype=int)
-    no_states = _sample_conditioned(ts[-1], init, target, w)
+    no_states = _sample_conditioned(ts[int(np.log2(length))-1], init, target, w)
     if no_states:
         return no_states
     _draw_sample_fill(ts, int(np.log2(length))-1, w, 0, length)
@@ -163,9 +164,9 @@ def draw_sample_generic(ts, length, target, mid_tranitions):
     steps_iter = reversed(mid_tranitions)
     i, trans_mat = next(steps_iter)
     step_idx = goal_idx - (2**i)
-    res_pair =  _weighted_idx_sample(trans_mat[:,target])
-    w[step_idx] = res_pair[0]
-    w[goal_idx] = target[res_pair[1]]
+    end_pair =  _weighted_idx_sample(trans_mat[:,target])
+    w[step_idx] = end_pair[0]
+    w[goal_idx] = target[end_pair[1]]
     _draw_sample_fill(ts, i, w, step_idx, goal_idx)
     goal_idx = step_idx
     
@@ -180,6 +181,21 @@ def draw_sample_generic(ts, length, target, mid_tranitions):
         goal_idx = step_idx
     return w
 
+def draw_sample_bypass(ts, gs, length, init, target):
+    w = np.full(length+1, -1, dtype=int)
+    i = int(np.log2(length))
+    prior_prob = np.zeros(gs[0].shape[0])
+    prior_prob[init] = 1/len(init)
+    
+    prior_diag = sp.diags_array(prior_prob, offsets=0)
+    trans_mat = prior_diag @ gs[i]
+    restr = trans_mat[:,target]
+    endpoint_pair =  _weighted_idx_sample(restr)
+    w[0] = endpoint_pair[0]
+    w[length] = target[endpoint_pair[1]]
+    _draw_sample_fill(ts, i, w, 0, length)
+    return w
+    
 def make_small_sample():
     dim = 4
     ts_data = np.array([[0,.3,0,0.7],[0,0.6,.4,0],[0,0,1,0],[0,1,0,0]])
@@ -192,11 +208,15 @@ def make_small_sample_count():
     ts_data = np.array([[0,1,0,1],[0,1,1,0],[0,0,1,0],[0,1,0,0]])
     return sp.coo_matrix(ts_data, shape=(dim, dim), dtype=float).tocsr()
 
-def generate_many_traces(gs, ts, length, init, target, save_traces=False, repeats=500):
+def generate_many_traces(gs, ts, length, init, target, save_traces=False, repeats=500, bypass=True):
     init = np.array(init)
     target = np.array(target)
     if (path_n & (path_n-1) == 0) and path_n != 0: # https://stackoverflow.com/a/57025941
-        draw = lambda: draw_sample_simple(ts, length, init, target)
+        if not bypass:
+            draw = lambda: draw_sample_simple(ts, length, init, target)
+        else:
+            gs.append(gs[-1] @ gs[-1])
+            draw = lambda: draw_sample_bypass(ts, gs, length, init, target)
         rel_mat = _slice_csr_full(ts[-1], init, target)
         print(f"Property probability is {rel_mat.sum()/len(init)}")
     else:
@@ -264,6 +284,7 @@ def load_and_store(dirname, t0, length):
 
 if __name__ == "__main__":
     parser = True
+    bypass_restriction = True
     # python sparse_mat_sample.py dtmcs/die.drn 8 -repeats 10
     if parser:
         parser = argparse.ArgumentParser("Generates conditional samples of system via sparse matrices.")
@@ -282,10 +303,10 @@ if __name__ == "__main__":
         store = args.store
         output = args.output
     else:
-        filename = "dtmcs/herman/herman5.drn"
-        path_n = 16
+        filename = "dtmcs/brp/brp_64_2.drn"
+        path_n = 15
         repeats = 100
-        tlabel = 'stable'
+        tlabel = 'target'
         store = False
         output = filename + '.out'
     print(f'Running parameters: fname={filename}, n={path_n}, repeats={repeats},'+
@@ -314,7 +335,7 @@ if __name__ == "__main__":
     save_traces = len(output) > 0
     #plot_mats(filename.replace('.drn', ''), gs, ts)
     res = generate_many_traces(gs, ts, path_n, init,
-                target, repeats=repeats, save_traces=save_traces)
+                target, repeats=repeats, save_traces=save_traces, bypass=bypass_restriction)
     
     if save_traces and res:
         with open(output, 'w+') as f:
