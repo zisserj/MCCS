@@ -44,3 +44,4 @@ endrewards
 
 label "target" = s=7 & d=6;
 label "flip_heads" = flip=0 & side=0;
+label "flip_tails" = flip=0 & side=1;
