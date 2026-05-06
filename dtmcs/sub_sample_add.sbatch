@@ -5,15 +5,12 @@
 ### To ignore, just add another # - like so: ##SBATCH
 ################################################################################################
 
-#SBATCH --partition main			### specify partition name where to run a job. change only if you have a matching qos!! main: all nodes; gtx1080: 1080 gpu card nodes; rtx2080: 2080 nodes; teslap100: p100 nodes; titanrtx: titan nodes
-#SBATCH --time 0-20:30:00			### limit the time of job running. Make sure it is not greater than the partition time limit!! Format: D-H:MM:SS
-#SBATCH --job-name nand ### name of the job
-#SBATCH --output logs/add_sampling-%x-%J.out			### output log for running job - %J for job number
-#SBATCH --gpus=gtx_1080:1
-# Note: the following 4 lines are commented out
-##SBATCH --mail-user=user@post.bgu.ac.il	### user's email for sending job status messages
-##SBATCH --mail-type=ALL			### conditions for sending the email. ALL,BEGIN,END,FAIL, REQUEU, NONE
-#SBATCH --mem=32G				### ammount of RAM memory, allocating more than 60G requires IT team's permission
+#SBATCH --partition main                        ### specify partition name where to run a job. change only if you have a matching qos!! main: all nodes; gtx1080: 1080 gpu card nodes; rtx2080: 2080 nodes; teslap100: p100 nodes; titanrtx: titan nodes
+#SBATCH --time 0-20:30:00                       ### limit the time of job running. Make sure it is not greater than the partition time limit!! Format: D-H:MM:SS
+#SBATCH --job-name herman_add               ### name of the job
+#SBATCH --output logs/add_sampling-%x-%J.out                    ### output log for running job - %J for job number
+#SBATCH --mem=32G                               ### ammount of RAM memory, allocating more than 60G requires IT team's permission
+#SBATCH --constraint=cpu128
 
 
 ################  Following lines will be executed by a compute node    #######################

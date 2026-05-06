@@ -6,8 +6,9 @@ from drn_to_sparse import read_drn
 import argparse
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplot2tikz
 
-np.set_printoptions(precision=10, suppress=True)
+np.set_printoptions(precision=5, suppress=True)
 rng = np.random.default_rng()
 
 
@@ -46,20 +47,23 @@ def plot_mats(dirname, gs, ts):
     fname = os.path.basename(dirname)
     n_func = len(gs)
     dim = gs[0].shape[0]
-    msize = 150/(dim)
+    msize = 500/(dim)
     cmap = mpl.colormaps['plasma']
     colors = cmap(np.linspace(0.8, 0, n_func))
     fig = plt.figure(figsize=(7,7))
     for i, g in enumerate(reversed(gs)):
         num_values = len(np.unique(g.data, sorted=False)) # type: ignore
-        plt.spy(g, figure=fig, markersize=msize,
+        plt.spy(g, figure=fig, markersize=msize, marker='s',
                 c=colors[i], label=f'$g_{n_func-i-1}$, {num_values} unique values')
-    plt.title(f'Matrix Rep of $g_i$ for "{fname}"')
+    #plt.title(f'Matrix Rep of $g_i$ for "{fname}"')
     plt.xticks([0, dim-1])
     plt.yticks([0, dim-1])
     plt.legend(loc='lower left', markerscale=10/msize, reverse=True)
-    plt.tight_layout()
+    #plt.tight_layout()
     plt.savefig(dirname+'_gs.png')
+    matplot2tikz.clean_figure()
+    matplot2tikz.save(f"{dirname}_gs.tex")
+    print(f'exported {dirname}')
     plt.close()
 
 def ts_sanity_test(ts, path_n, init, target):
@@ -180,21 +184,6 @@ def draw_sample_generic(ts, length, target, mid_tranitions):
         #endpoint_sampled = [w[start_idx]]
         goal_idx = step_idx
     return w
-
-def draw_sample_bypass(ts, gs, length, init, target):
-    w = np.full(length+1, -1, dtype=int)
-    i = int(np.log2(length))
-    prior_prob = np.zeros(gs[0].shape[0])
-    prior_prob[init] = 1/len(init)
-    
-    prior_diag = sp.diags_array(prior_prob, offsets=0)
-    trans_mat = prior_diag @ gs[i]
-    restr = trans_mat[:,target]
-    endpoint_pair =  _weighted_idx_sample(restr)
-    w[0] = endpoint_pair[0]
-    w[length] = target[endpoint_pair[1]]
-    _draw_sample_fill(ts, i, w, 0, length)
-    return w
     
 def make_small_sample():
     dim = 4
@@ -211,16 +200,12 @@ def make_small_sample_count():
 def generate_many_traces(gs, ts, length, init, target, save_traces=False, repeats=500, bypass=True):
     init = np.array(init)
     target = np.array(target)
-    if (path_n & (path_n-1) == 0) and path_n != 0: # https://stackoverflow.com/a/57025941
-        if not bypass:
-            draw = lambda: draw_sample_simple(ts, length, init, target)
-        else:
-            gs.append(gs[-1] @ gs[-1])
-            draw = lambda: draw_sample_bypass(ts, gs, length, init, target)
+    if not bypass and (path_n & (path_n-1) == 0) and path_n != 0: # https://stackoverflow.com/a/57025941
+        draw = lambda: draw_sample_simple(ts, length, init, target)
         rel_mat = _slice_csr_full(ts[-1], init, target)
         print(f"Property probability is {rel_mat.sum()/len(init)}")
     else:
-        if len(gs) < np.log2(path_n):
+        if len(gs) <= np.log2(path_n):
             extend_power_mats(gs, ts, len(gs)+1)
         endpoint_steps = compute_forward_probs(gs, length, init)
         draw = lambda: draw_sample_generic(ts, length, target, endpoint_steps)
@@ -284,7 +269,7 @@ def load_and_store(dirname, t0, length):
 
 if __name__ == "__main__":
     parser = True
-    bypass_restriction = True
+    bypass_restriction = False
     # python sparse_mat_sample.py dtmcs/die.drn 8 -repeats 10
     if parser:
         parser = argparse.ArgumentParser("Generates conditional samples of system via sparse matrices.")
@@ -303,8 +288,8 @@ if __name__ == "__main__":
         store = args.store
         output = args.output
     else:
-        filename = "dtmcs/brp/brp_64_2.drn"
-        path_n = 15
+        filename = "dtmcs/brp/brp_N_64_MAX_4.drn"
+        path_n = 16
         repeats = 100
         tlabel = 'target'
         store = False
@@ -333,7 +318,8 @@ if __name__ == "__main__":
     
     
     save_traces = len(output) > 0
-    #plot_mats(filename.replace('.drn', ''), gs, ts)
+    # plot_mats(filename.replace('.drn', ''), gs, ts)
+    # quit(0)
     res = generate_many_traces(gs, ts, path_n, init,
                 target, repeats=repeats, save_traces=save_traces, bypass=bypass_restriction)
     
