@@ -6,7 +6,7 @@ from drn_to_sparse import read_drn
 import argparse
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import matplot2tikz
+# import matplot2tikz
 
 np.set_printoptions(precision=5, suppress=True)
 rng = np.random.default_rng()
