@@ -61,8 +61,8 @@ def plot_mats(dirname, gs, ts):
     plt.legend(loc='lower left', markerscale=10/msize, reverse=True)
     #plt.tight_layout()
     plt.savefig(dirname+'_gs.png')
-    matplot2tikz.clean_figure()
-    matplot2tikz.save(f"{dirname}_gs.tex")
+    # matplot2tikz.clean_figure()
+    # matplot2tikz.save(f"{dirname}_gs.tex")
     print(f'exported {dirname}')
     plt.close()
 
